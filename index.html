@@ -17,13 +17,28 @@
             font-family: 'Inter', sans-serif;
         }
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        
+        /* Sidebar transition */
+        #sidebar {
+            transition: transform 0.3s ease-in-out;
+        }
     </style>
 </head>
 <body class="bg-slate-100 antialiased">
 
-    <div class="flex h-screen">
+    <div class="relative min-h-screen md:flex">
+        <!-- Mobile Menu Button -->
+        <div class="bg-slate-800 text-gray-100 flex justify-between md:hidden">
+            <a href="#" class="block p-4 text-white font-bold">ReconSuite</a>
+            <button id="mobile-menu-button" class="p-4 focus:outline-none focus:bg-slate-700">
+                <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+            </button>
+        </div>
+
         <!-- Sidebar -->
-        <aside id="sidebar" class="w-64 bg-slate-800 text-slate-300 flex flex-col">
+        <aside id="sidebar" class="w-64 bg-slate-800 text-slate-300 flex-col fixed inset-y-0 left-0 transform -translate-x-full md:relative md:translate-x-0 z-30">
             <div class="p-6 text-center">
                 <h1 class="text-2xl font-bold text-white">ReconSuite</h1>
             </div>
@@ -187,13 +202,13 @@
             `).join('');
 
             page.innerHTML = `
-                <div class="p-8">
-                    <h2 class="text-3xl font-bold text-slate-800 mb-6">Dashboard</h2>
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-                        <div class="bg-white p-6 rounded-xl shadow-md"><h4 class="text-sm font-medium text-slate-500 mb-2">Total Sales</h4><p class="text-3xl font-bold text-slate-800">${formatCurrency(summary.totalSales)}</p></div>
-                        <div class="bg-white p-6 rounded-xl shadow-md"><h4 class="text-sm font-medium text-slate-500 mb-2">Total Payouts</h4><p class="text-3xl font-bold text-slate-800">${formatCurrency(summary.totalPayouts)}</p></div>
-                        <div class="bg-white p-6 rounded-xl shadow-md"><h4 class="text-sm font-medium text-slate-500 mb-2">Reconciled Amount</h4><p class="text-3xl font-bold text-slate-800">${formatCurrency(summary.reconciledAmount)}</p></div>
-                        <div class="bg-white p-6 rounded-xl shadow-md"><h4 class="text-sm font-medium text-slate-500 mb-2">Unreconciled Amount</h4><p class="text-3xl font-bold text-red-600">${formatCurrency(summary.unreconciledAmount)}</p></div>
+                <div class="p-4 md:p-8">
+                    <h2 class="text-2xl md:text-3xl font-bold text-slate-800 mb-6">Dashboard</h2>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+                        <div class="bg-white p-6 rounded-xl shadow-md"><h4 class="text-sm font-medium text-slate-500 mb-2">Total Sales</h4><p class="text-2xl md:text-3xl font-bold text-slate-800">${formatCurrency(summary.totalSales)}</p></div>
+                        <div class="bg-white p-6 rounded-xl shadow-md"><h4 class="text-sm font-medium text-slate-500 mb-2">Total Payouts</h4><p class="text-2xl md:text-3xl font-bold text-slate-800">${formatCurrency(summary.totalPayouts)}</p></div>
+                        <div class="bg-white p-6 rounded-xl shadow-md"><h4 class="text-sm font-medium text-slate-500 mb-2">Reconciled Amount</h4><p class="text-2xl md:text-3xl font-bold text-slate-800">${formatCurrency(summary.reconciledAmount)}</p></div>
+                        <div class="bg-white p-6 rounded-xl shadow-md"><h4 class="text-sm font-medium text-slate-500 mb-2">Unreconciled Amount</h4><p class="text-2xl md:text-3xl font-bold text-red-600">${formatCurrency(summary.unreconciledAmount)}</p></div>
                     </div>
                     <div class="grid grid-cols-1 lg:grid-cols-5 gap-6 mb-6">
                         <div class="lg:col-span-2 bg-white p-6 rounded-xl shadow-md"><h3 class="text-lg font-semibold text-slate-700 mb-4">Reconciliation Status</h3><div class="relative h-[250px]"><canvas id="pieChart"></canvas></div></div>
@@ -316,8 +331,8 @@
             }
 
             page.innerHTML = `
-                <div class="p-8">
-                    <h2 class="text-3xl font-bold text-slate-800 mb-6">Data Upload & Mapping</h2>
+                <div class="p-4 md:p-8">
+                    <h2 class="text-2xl md:text-3xl font-bold text-slate-800 mb-6">Data Upload & Mapping</h2>
                     <div class="max-w-4xl mx-auto">${content}</div>
                 </div>`;
         };
@@ -356,8 +371,8 @@
             const discrepancyTypes = [...new Set(state.dummyData.map(d => d.discrepancy).filter(Boolean))];
 
             page.innerHTML = `
-                <div class="p-8">
-                    <h2 class="text-3xl font-bold text-slate-800 mb-6">Exception Management</h2>
+                <div class="p-4 md:p-8">
+                    <h2 class="text-2xl md:text-3xl font-bold text-slate-800 mb-6">Exception Management</h2>
                     <div class="bg-white p-6 rounded-xl shadow-md">
                         <div class="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
                             <div class="relative w-full md:w-1/3">
@@ -395,7 +410,7 @@
             const page = document.getElementById('order-detail-page');
             const order = state.dummyData.find(o => o.id === state.selectedOrderId);
             if (!order) {
-                page.innerHTML = `<div class="p-8">Order not found.</div>`;
+                page.innerHTML = `<div class="p-4 md:p-8">Order not found.</div>`;
                 return;
             }
 
@@ -422,11 +437,11 @@
             };
 
             page.innerHTML = `
-                <div class="p-8">
+                <div class="p-4 md:p-8">
                     <button id="back-to-exceptions" class="text-indigo-600 font-semibold mb-6 flex items-center">&larr; Back to Exceptions</button>
-                    <div class="flex justify-between items-start mb-6">
-                        <div><h2 class="text-3xl font-bold text-slate-800">${order.id}</h2><p class="text-slate-500">${order.customer} &bull; ${order.date}</p></div>
-                        ${StatusBadge(order.status, true)}
+                    <div class="flex flex-col sm:flex-row justify-between items-start mb-6">
+                        <div><h2 class="text-2xl md:text-3xl font-bold text-slate-800">${order.id}</h2><p class="text-slate-500">${order.customer} &bull; ${order.date}</p></div>
+                        <div class="mt-2 sm:mt-0">${StatusBadge(order.status, true)}</div>
                     </div>
                     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         <div class="lg:col-span-2 bg-white p-6 rounded-xl shadow-md">
@@ -451,15 +466,15 @@
         const renderReports = () => {
             const page = document.getElementById('reports-page');
             page.innerHTML = `
-                <div class="p-8">
-                    <h2 class="text-3xl font-bold text-slate-800 mb-6">Reports</h2>
+                <div class="p-4 md:p-8">
+                    <h2 class="text-2xl md:text-3xl font-bold text-slate-800 mb-6">Reports</h2>
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
                         <div class="bg-white p-6 rounded-xl shadow-md"><h3 class="text-lg font-semibold text-slate-700 mb-4">Profitability Trend (Last 30 Days)</h3><div class="relative h-[300px]"><canvas id="trendChart"></canvas></div></div>
                         <div class="bg-white p-6 rounded-xl shadow-md"><h3 class="text-lg font-semibold text-slate-700 mb-4">Profitability by Payment Method</h3><div class="relative h-[300px]"><canvas id="paymentMethodChart"></canvas></div></div>
                     </div>
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <div class="bg-white p-6 rounded-xl shadow-md"><h3 class="text-lg font-semibold text-slate-700 mb-4">Top 5 Most Profitable Products</h3><div id="top-products-table"></div></div>
-                        <div class="bg-white p-6 rounded-xl shadow-md"><h3 class="text-lg font-semibold text-slate-700 mb-4">Top 5 Least Profitable Products</h3><div id="bottom-products-table"></div></div>
+                        <div class="bg-white p-6 rounded-xl shadow-md"><h3 class="text-lg font-semibold text-slate-700 mb-4">Top 5 Most Profitable Products</h3><div id="top-products-table" class="overflow-x-auto"></div></div>
+                        <div class="bg-white p-6 rounded-xl shadow-md"><h3 class="text-lg font-semibold text-slate-700 mb-4">Top 5 Least Profitable Products</h3><div id="bottom-products-table" class="overflow-x-auto"></div></div>
                     </div>
                 </div>`;
             
@@ -527,8 +542,8 @@
         const renderSettings = () => {
             const page = document.getElementById('settings-page');
             page.innerHTML = `
-                <div class="p-8">
-                    <h2 class="text-3xl font-bold text-slate-800 mb-6">Settings</h2>
+                <div class="p-4 md:p-8">
+                    <h2 class="text-2xl md:text-3xl font-bold text-slate-800 mb-6">Settings</h2>
                     <div class="max-w-2xl space-y-8">
                         <div class="bg-white p-6 rounded-xl shadow-md">
                             <h3 class="text-lg font-semibold text-slate-700 border-b border-slate-200 pb-3 mb-4">User Profile</h3>
@@ -577,12 +592,19 @@
         window.navigateTo = (page, orderId = null) => {
             state.activePage = page;
             if (orderId) state.selectedOrderId = orderId;
+            // Close sidebar on mobile after navigation
+            document.getElementById('sidebar').classList.add('-translate-x-full');
             mainRender();
         };
 
         // --- EVENT LISTENERS ---
         const addEventListeners = () => {
-            // Sidebar navigation - ALWAYS re-attach
+            // Mobile menu toggle
+            document.getElementById('mobile-menu-button').onclick = () => {
+                document.getElementById('sidebar').classList.toggle('-translate-x-full');
+            };
+
+            // Sidebar navigation
             document.querySelectorAll('.sidebar-btn').forEach(btn => {
                 btn.onclick = () => navigateTo(btn.dataset.page);
             });

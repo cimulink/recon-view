@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ReconSuite - Interactive Prototype</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Switched to Chart.js for lighter, more stable charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* A simple style to hide non-active pages */
+        .page-content.hidden {
+            display: none;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    </style>
+</head>
+<body class="bg-slate-100 antialiased">
+
+    <div class="flex h-screen">
+        <!-- Sidebar -->
+        <aside id="sidebar" class="w-64 bg-slate-800 text-slate-300 flex flex-col">
+            <div class="p-6 text-center">
+                <h1 class="text-2xl font-bold text-white">ReconSuite</h1>
+            </div>
+            <nav id="sidebar-nav" class="flex-1 px-4">
+                <!-- Nav items will be injected here by JS -->
+            </nav>
+            <div class="p-4 border-t border-slate-700">
+                <div class="flex items-center">
+                    <div class="w-10 h-10 rounded-full bg-indigo-500 flex items-center justify-center font-bold text-white">
+                        PS
+                    </div>
+                    <div class="ml-3">
+                        <p class="text-sm font-semibold text-white">Priya Sharma</p>
+                        <p class="text-xs text-slate-400">Jaipur Handicrafts</p>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 overflow-y-auto">
+            <div id="dashboard-page" class="page-content"></div>
+            <div id="data-upload-page" class="page-content hidden"></div>
+            <div id="exceptions-page" class="page-content hidden"></div>
+            <div id="order-detail-page" class="page-content hidden"></div>
+            <div id="reports-page" class="page-content hidden"></div>
+            <div id="settings-page" class="page-content hidden"></div>
+        </main>
+    </div>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+
+        // --- GLOBAL STATE ---
+        let state = {
+            activePage: 'Dashboard',
+            selectedOrderId: null,
+            dummyData: [],
+            uploadStep: 1,
+            uploadedFiles: { shopify: null, razorpay: null, shiprocket: null },
+            exceptionsFilter: 'ALL',
+            exceptionsSearchTerm: '',
+            exceptionsSortConfig: { key: 'date', direction: 'descending' },
+            charts: {}, // To hold chart instances
+        };
+
+        // --- DUMMY DATA GENERATION ---
+        const generateDummyData = () => {
+            const data = [];
+            const discrepancyTypes = ['AMOUNT_MISMATCH', 'PAYMENT_MISSING', 'SHIPMENT_MISSING', null];
+            const customers = ['Rohan Sharma', 'Priya Singh', 'Amit Patel', 'Sneha Reddy', 'Vikram Kumar', 'Anjali Gupta'];
+            const products = [
+                { name: 'Blue Kurta Set', cogs: 450 }, { name: 'Hand-painted Vase', cogs: 800 },
+                { name: 'Embroidered Cushion Cover', cogs: 300 }, { name: 'Jaipuri Block Print Scarf', cogs: 250 },
+                { name: 'Silver Jhumka Earrings', cogs: 1200 }, { name: 'Leather Mojari Shoes', cogs: 950 }
+            ];
+
+            for (let i = 1; i <= 100; i++) {
+                const product = products[i % products.length];
+                const orderId = `ORD-${1000 + i}`;
+                const saleAmount = parseFloat((product.cogs * (Math.random() * (2.5 - 1.8) + 1.8)).toFixed(2));
+                const cogs = product.cogs;
+                const shippingFee = parseFloat((Math.random() * (150 - 50) + 50).toFixed(2));
+                const paymentMethod = Math.random() > 0.4 ? 'Prepaid' : 'COD';
+                
+                let paymentAmount = saleAmount;
+                let gatewayFee = parseFloat((paymentAmount * 0.02).toFixed(2));
+                let discrepancy = discrepancyTypes[Math.floor(Math.random() * 7)];
+                if (discrepancy === null && i % 10 === 0) {
+                    discrepancy = discrepancyTypes[i % 3];
+                }
+
+                let status = 'RECONCILED';
+                if (discrepancy === 'AMOUNT_MISMATCH') {
+                    paymentAmount = saleAmount - parseFloat((Math.random() * 50).toFixed(2));
+                    status = 'MISMATCHED';
+                }
+                if (discrepancy === 'PAYMENT_MISSING' || (paymentMethod === 'COD' && Math.random() > 0.8)) { // Simulating some COD non-remittance
+                    paymentAmount = 0;
+                    gatewayFee = 0;
+                    status = 'ORPHANED';
+                    discrepancy = 'PAYMENT_MISSING';
+                }
+                const hasShipment = discrepancy !== 'SHIPMENT_MISSING';
+                if (!hasShipment) status = 'MISMATCHED';
+
+                const netProfit = paymentAmount - gatewayFee - (hasShipment ? shippingFee : 0) - cogs;
+
+                data.push({
+                    id: orderId,
+                    customer: customers[i % customers.length],
+                    date: `2025-08-${String(Math.floor(i / 4) + 1).padStart(2, '0')}`, // More structured dates for trend chart
+                    productName: product.name,
+                    paymentMethod,
+                    status, discrepancy,
+                    sale: { platform: 'Shopify', amount: saleAmount },
+                    payment: { gateway: 'Razorpay', amount: paymentAmount, fee: gatewayFee },
+                    shipment: hasShipment ? { provider: 'Shiprocket', fee: shippingFee } : null,
+                    cogs, netProfit,
+                });
+            }
+            return data;
+        };
+        state.dummyData = generateDummyData();
+
+        // --- UTILITY FUNCTIONS ---
+        const formatCurrency = (value, digits = 0) => `₹${value.toLocaleString('en-IN', { maximumFractionDigits: digits, minimumFractionDigits: digits })}`;
+        
+        const StatusBadge = (status, large = false) => {
+            if (!status) return '';
+            const styles = {
+                RECONCILED: 'bg-green-100 text-green-800', MISMATCHED: 'bg-yellow-100 text-yellow-800',
+                ORPHANED: 'bg-red-100 text-red-800', AMOUNT_MISMATCH: 'bg-yellow-100 text-yellow-800',
+                PAYMENT_MISSING: 'bg-red-100 text-red-800', SHIPMENT_MISSING: 'bg-orange-100 text-orange-800',
+            };
+            const style = styles[status] || 'bg-slate-100 text-slate-800';
+            const size = large ? 'text-sm px-3 py-1' : 'text-xs px-2.5 py-0.5';
+            return `<span class="font-medium rounded-full ${size} ${style}">${status.replace('_', ' ')}</span>`;
+        };
+        
+        const destroyCharts = () => {
+            Object.values(state.charts).forEach(chart => chart.destroy());
+            state.charts = {};
+        };
+
+        // --- RENDER FUNCTIONS ---
+        const renderSidebar = () => {
+            const navContainer = document.getElementById('sidebar-nav');
+            const navItems = ['Dashboard', 'Data Upload', 'Exceptions', 'Reports', 'Settings'];
+            navContainer.innerHTML = navItems.map(item => `
+                <button
+                    data-page="${item}"
+                    class="sidebar-btn w-full text-left px-4 py-3 my-1 rounded-lg flex items-center transition-colors duration-200 ${
+                        state.activePage === item ? 'bg-indigo-600 text-white' : 'hover:bg-slate-700 hover:text-white'
+                    }"
+                >
+                    ${item}
+                </button>
+            `).join('');
+        };
+
+        const renderDashboard = () => {
+            const page = document.getElementById('dashboard-page');
+            const summary = state.dummyData.reduce((acc, order) => {
+                acc.totalSales += order.sale.amount;
+                acc.totalPayouts += order.payment.amount;
+                if (order.status === 'RECONCILED') acc.reconciledAmount += order.sale.amount;
+                else acc.unreconciledAmount += order.sale.amount;
+                if (order.discrepancy) acc.discrepancies[order.discrepancy] = (acc.discrepancies[order.discrepancy] || 0) + 1;
+                return acc;
+            }, { totalSales: 0, totalPayouts: 0, reconciledAmount: 0, unreconciledAmount: 0, discrepancies: {} });
+
+            const recentActivityHTML = state.dummyData.slice(0, 5).map(order => `
+                <tr class="bg-white border-b hover:bg-slate-50 cursor-pointer" onclick="navigateTo('Order Detail', '${order.id}')">
+                    <td class="px-6 py-4 font-medium text-slate-900">${order.id}</td>
+                    <td class="px-6 py-4">${order.customer}</td>
+                    <td class="px-6 py-4">${order.date}</td>
+                    <td class="px-6 py-4">${StatusBadge(order.status)}</td>
+                    <td class="px-6 py-4 font-medium">${formatCurrency(order.sale.amount)}</td>
+                </tr>
+            `).join('');
+
+            page.innerHTML = `
+                <div class="p-8">
+                    <h2 class="text-3xl font-bold text-slate-800 mb-6">Dashboard</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+                        <div class="bg-white p-6 rounded-xl shadow-md"><h4 class="text-sm font-medium text-slate-500 mb-2">Total Sales</h4><p class="text-3xl font-bold text-slate-800">${formatCurrency(summary.totalSales)}</p></div>
+                        <div class="bg-white p-6 rounded-xl shadow-md"><h4 class="text-sm font-medium text-slate-500 mb-2">Total Payouts</h4><p class="text-3xl font-bold text-slate-800">${formatCurrency(summary.totalPayouts)}</p></div>
+                        <div class="bg-white p-6 rounded-xl shadow-md"><h4 class="text-sm font-medium text-slate-500 mb-2">Reconciled Amount</h4><p class="text-3xl font-bold text-slate-800">${formatCurrency(summary.reconciledAmount)}</p></div>
+                        <div class="bg-white p-6 rounded-xl shadow-md"><h4 class="text-sm font-medium text-slate-500 mb-2">Unreconciled Amount</h4><p class="text-3xl font-bold text-red-600">${formatCurrency(summary.unreconciledAmount)}</p></div>
+                    </div>
+                    <div class="grid grid-cols-1 lg:grid-cols-5 gap-6 mb-6">
+                        <div class="lg:col-span-2 bg-white p-6 rounded-xl shadow-md"><h3 class="text-lg font-semibold text-slate-700 mb-4">Reconciliation Status</h3><div class="relative h-[250px]"><canvas id="pieChart"></canvas></div></div>
+                        <div class="lg:col-span-3 bg-white p-6 rounded-xl shadow-md"><h3 class="text-lg font-semibold text-slate-700 mb-4">Discrepancies Overview</h3><div class="relative h-[250px]"><canvas id="barChart"></canvas></div></div>
+                    </div>
+                    <div class="bg-white p-6 rounded-xl shadow-md">
+                        <h3 class="text-lg font-semibold text-slate-700 mb-4">Recent Activity</h3>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm text-left text-slate-500">
+                                <thead class="text-xs text-slate-700 uppercase bg-slate-50"><tr><th class="px-6 py-3">Order ID</th><th class="px-6 py-3">Customer</th><th class="px-6 py-3">Date</th><th class="px-6 py-3">Status</th><th class="px-6 py-3">Amount</th></tr></thead>
+                                <tbody>${recentActivityHTML}</tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>`;
+            
+            // Render Charts with Chart.js
+            const pieCtx = document.getElementById('pieChart')?.getContext('2d');
+            if (pieCtx) {
+                state.charts.pieChart = new Chart(pieCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Reconciled', 'Unreconciled'],
+                        datasets: [{ data: [summary.reconciledAmount, summary.unreconciledAmount], backgroundColor: ['#22C55E', '#EF4444'] }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+                });
+            }
+
+            const barCtx = document.getElementById('barChart')?.getContext('2d');
+            if (barCtx) {
+                const barData = Object.entries(summary.discrepancies);
+                state.charts.barChart = new Chart(barCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: barData.map(d => d[0]),
+                        datasets: [{ label: 'Count', data: barData.map(d => d[1]), backgroundColor: '#4F46E5' }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+                });
+            }
+        };
+
+        const renderDataUpload = () => {
+             const page = document.getElementById('data-upload-page');
+            const { uploadStep, uploadedFiles } = state;
+            
+            const UploadStepHTML = (title, source) => `
+                <div class="bg-white p-6 rounded-xl shadow-md">
+                    <h3 class="text-lg font-semibold text-slate-700 mb-4">${title}</h3>
+                    <div class="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center">
+                        ${uploadedFiles[source] ? `
+                            <div class="flex items-center justify-center text-slate-700">
+                                <i data-lucide="file-text" class="w-5 h-5 mr-2"></i>
+                                <span>${uploadedFiles[source].name}</span>
+                                <button data-source="${source}" class="remove-file-btn ml-4 text-red-500 hover:text-red-700"><i data-lucide="x" class="w-5 h-5"></i></button>
+                            </div>
+                        ` : `
+                            <i data-lucide="upload" class="mx-auto text-slate-400 w-12 h-12 mb-4"></i>
+                            <p class="text-slate-500 mb-2">Drag & drop your CSV/XLSX file here</p>
+                            <p class="text-xs text-slate-400 mb-4">or</p>
+                            <button data-source="${source}" class="browse-file-btn bg-slate-100 text-slate-700 font-semibold py-2 px-4 rounded-lg text-sm hover:bg-slate-200 transition-colors">Browse Files</button>
+                        `}
+                    </div>
+                </div>`;
+
+            const MappingStepHTML = (title, mappings) => `
+                <div class="bg-white p-6 rounded-xl shadow-md">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-lg font-semibold text-slate-700">${title}</h3>
+                        <label class="flex items-center text-sm text-slate-600"><input type="checkbox" class="h-4 w-4 rounded border-gray-300 text-indigo-600" checked><span class="ml-2">Save Mapping Template</span></label>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4 text-sm">
+                        <div class="font-semibold text-slate-500 p-2">Your Columns (from file)</div>
+                        <div class="font-semibold text-slate-500 p-2">ReconSuite Fields</div>
+                        ${mappings.map(m => `
+                            <div class="p-2 rounded ${m.suggested ? 'bg-green-50' : 'bg-slate-50'}">${m.from} ${m.suggested ? '<span class="text-green-600 text-xs">(Suggested)</span>' : ''}</div>
+                            <div class="p-2 bg-slate-50 rounded">${m.to}</div>
+                        `).join('')}
+                    </div>
+                </div>`;
+
+            let content = '';
+            if (uploadStep === 1) {
+                content = `
+                    <div class="space-y-6">
+                        ${UploadStepHTML('1. Upload Shopify Orders', 'shopify')}
+                        ${UploadStepHTML('2. Upload Razorpay Payouts', 'razorpay')}
+                        ${UploadStepHTML('3. Upload Shiprocket Shipments', 'shiprocket')}
+                        <div class="text-right">
+                            <button id="upload-next-btn" class="bg-indigo-600 text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:bg-indigo-700 transition-colors disabled:bg-indigo-300" ${!uploadedFiles.shopify || !uploadedFiles.razorpay ? 'disabled' : ''}>
+                                Next: Map Columns
+                            </button>
+                        </div>
+                    </div>`;
+            } else if (uploadStep === 2) {
+                const mappings = {
+                    shopify: [{ from: 'Order ID', to: 'order_id', suggested: true }, { from: 'Sale Amount', to: 'sale_amount', suggested: true }],
+                    razorpay: [{ from: 'order_id', to: 'order_id', suggested: true }, { from: 'payout', to: 'payout_amount', suggested: true }],
+                    shiprocket: [{ from: 'OrderID', to: 'order_id', suggested: true }, { from: 'Shipping Cost', to: 'shipping_fee', suggested: true }],
+                };
+                content = `
+                    <div class="space-y-8">
+                        ${MappingStepHTML('Shopify Mapping', mappings.shopify)}
+                        ${MappingStepHTML('Razorpay Mapping', mappings.razorpay)}
+                        ${MappingStepHTML('Shiprocket Mapping', mappings.shiprocket)}
+                        <div class="flex justify-between items-center">
+                            <button id="mapping-back-btn" class="bg-slate-200 text-slate-800 font-semibold py-3 px-6 rounded-lg hover:bg-slate-300 transition-colors">Back</button>
+                            <button id="initiate-recon-btn" class="bg-indigo-600 text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:bg-indigo-700 transition-colors">Initiate Reconciliation</button>
+                        </div>
+                    </div>`;
+            } else if (uploadStep === 3) {
+                content = `
+                    <div class="text-center bg-white p-12 rounded-xl shadow-lg">
+                        <div class="w-16 h-16 bg-green-100 rounded-full mx-auto flex items-center justify-center mb-6"><i data-lucide="check" class="text-green-600 w-8 h-8"></i></div>
+                        <h3 class="text-2xl font-bold text-slate-800 mb-2">Reconciliation in Progress!</h3>
+                        <p class="text-slate-500 mb-6">We're processing your files. We'll notify you when your dashboard is ready.</p>
+                        <button id="upload-more-btn" class="bg-indigo-600 text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:bg-indigo-700 transition-colors">Upload More Files</button>
+                    </div>`;
+            }
+
+            page.innerHTML = `
+                <div class="p-8">
+                    <h2 class="text-3xl font-bold text-slate-800 mb-6">Data Upload & Mapping</h2>
+                    <div class="max-w-4xl mx-auto">${content}</div>
+                </div>`;
+        };
+        
+        const renderExceptions = () => {
+            const page = document.getElementById('exceptions-page');
+            const { exceptionsFilter, exceptionsSearchTerm, exceptionsSortConfig } = state;
+
+            const exceptions = state.dummyData
+                .filter(o => o.status !== 'RECONCILED')
+                .filter(o => exceptionsFilter === 'ALL' || o.discrepancy === exceptionsFilter)
+                .filter(o => o.id.toLowerCase().includes(exceptionsSearchTerm.toLowerCase()) || o.customer.toLowerCase().includes(exceptionsSearchTerm.toLowerCase()));
+
+            exceptions.sort((a, b) => {
+                if (a[exceptionsSortConfig.key] < b[exceptionsSortConfig.key]) return exceptionsSortConfig.direction === 'ascending' ? -1 : 1;
+                if (a[exceptionsSortConfig.key] > b[exceptionsSortConfig.key]) return exceptionsSortConfig.direction === 'ascending' ? 1 : -1;
+                return 0;
+            });
+
+            const getSortIcon = (key) => {
+                if (!exceptionsSortConfig || exceptionsSortConfig.key !== key) return `<i data-lucide="arrow-up-down" class="w-4 h-4 ml-2 opacity-30"></i>`;
+                return exceptionsSortConfig.direction === 'ascending' ? '▲' : '▼';
+            };
+
+            const tableRows = exceptions.map(order => `
+                <tr class="bg-white border-b hover:bg-slate-50 cursor-pointer" onclick="navigateTo('Order Detail', '${order.id}')">
+                    <td class="px-6 py-4 font-medium text-indigo-600">${order.id}</td>
+                    <td class="px-6 py-4">${order.customer}</td>
+                    <td class="px-6 py-4">${order.date}</td>
+                    <td class="px-6 py-4">${StatusBadge(order.discrepancy)}</td>
+                    <td class="px-6 py-4 font-medium">${formatCurrency(order.sale.amount, 2)}</td>
+                    <td class="px-6 py-4 font-medium text-red-600">${formatCurrency(order.payment.amount, 2)}</td>
+                </tr>
+            `).join('');
+            
+            const discrepancyTypes = [...new Set(state.dummyData.map(d => d.discrepancy).filter(Boolean))];
+
+            page.innerHTML = `
+                <div class="p-8">
+                    <h2 class="text-3xl font-bold text-slate-800 mb-6">Exception Management</h2>
+                    <div class="bg-white p-6 rounded-xl shadow-md">
+                        <div class="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
+                            <div class="relative w-full md:w-1/3">
+                                <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5"></i>
+                                <input id="exceptions-search" type="text" placeholder="Search..." class="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg" value="${exceptionsSearchTerm}">
+                            </div>
+                            <div class="flex items-center gap-4">
+                                <span class="text-sm font-medium text-slate-600">Filter by type:</span>
+                                <select id="exceptions-filter" class="border border-slate-300 rounded-lg py-2 px-3">
+                                    <option value="ALL">All Discrepancies</option>
+                                    ${discrepancyTypes.map(type => `<option value="${type}" ${exceptionsFilter === type ? 'selected' : ''}>${type}</option>`).join('')}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm text-left text-slate-500">
+                                <thead class="text-xs text-slate-700 uppercase bg-slate-50">
+                                    <tr>
+                                        <th class="px-6 py-3 cursor-pointer sort-header" data-key="id"><div class="flex items-center">Order ID ${getSortIcon('id')}</div></th>
+                                        <th class="px-6 py-3 cursor-pointer sort-header" data-key="customer"><div class="flex items-center">Customer ${getSortIcon('customer')}</div></th>
+                                        <th class="px-6 py-3 cursor-pointer sort-header" data-key="date"><div class="flex items-center">Date ${getSortIcon('date')}</div></th>
+                                        <th class="px-6 py-3">Discrepancy</th>
+                                        <th class="px-6 py-3">Sale Amount</th>
+                                        <th class="px-6 py-3">Payout Amount</th>
+                                    </tr>
+                                </thead>
+                                <tbody>${tableRows}</tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>`;
+        };
+        
+        const renderOrderDetail = () => {
+            const page = document.getElementById('order-detail-page');
+            const order = state.dummyData.find(o => o.id === state.selectedOrderId);
+            if (!order) {
+                page.innerHTML = `<div class="p-8">Order not found.</div>`;
+                return;
+            }
+
+            const timelineEvents = [
+                { type: 'Sale', platform: order.sale.platform, amount: order.sale.amount },
+                order.payment.amount > 0 && { type: 'Payment', platform: order.payment.gateway, amount: order.payment.amount, fee: order.payment.fee },
+                order.shipment && { type: 'Shipment', platform: order.shipment.provider, fee: order.shipment.fee }
+            ].filter(Boolean);
+
+            const timelineHTML = timelineEvents.map((event, index) => {
+                const isMismatch = event.type === 'Payment' && event.amount !== order.sale.amount;
+                return `
+                <div class="pl-8 pb-8 relative ${index === timelineEvents.length - 1 ? 'pb-0' : ''}">
+                    <div class="absolute -left-2.5 top-1 w-5 h-5 bg-indigo-600 rounded-full border-4 border-white"></div>
+                    <p class="font-semibold text-slate-800">${event.type} <span class="text-sm font-normal text-slate-500">(${event.platform})</span></p>
+                    ${event.amount ? `<p class="text-lg font-bold ${isMismatch ? 'text-red-600' : 'text-slate-700'}">${formatCurrency(event.amount, 2)} ${isMismatch ? '<span class="text-xs font-normal ml-2">(Mismatch)</span>' : ''}</p>` : ''}
+                    ${event.fee ? `<p class="text-sm text-slate-500">- ${formatCurrency(event.fee, 2)} fee</p>` : ''}
+                </div>`;
+            }).join('');
+            
+            const ProfitRow = (label, value, isNegative = false, isBold = false, isTotal = false) => {
+                const valueColor = isTotal ? (value >= 0 ? 'text-green-600' : 'text-red-600') : 'text-slate-800';
+                return `<div class="flex justify-between items-center ${isBold ? 'font-bold' : ''}"><span class="text-slate-600">${label}</span><span class="${valueColor}">${isNegative ? '- ' : ''}${formatCurrency(value, 2)}</span></div>`;
+            };
+
+            page.innerHTML = `
+                <div class="p-8">
+                    <button id="back-to-exceptions" class="text-indigo-600 font-semibold mb-6 flex items-center">&larr; Back to Exceptions</button>
+                    <div class="flex justify-between items-start mb-6">
+                        <div><h2 class="text-3xl font-bold text-slate-800">${order.id}</h2><p class="text-slate-500">${order.customer} &bull; ${order.date}</p></div>
+                        ${StatusBadge(order.status, true)}
+                    </div>
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div class="lg:col-span-2 bg-white p-6 rounded-xl shadow-md">
+                            <h3 class="text-lg font-semibold text-slate-700 mb-6">Financial Timeline</h3>
+                            <div class="relative border-l-2 border-slate-200 ml-4">${timelineHTML}</div>
+                        </div>
+                        <div class="bg-white p-6 rounded-xl shadow-md h-fit">
+                            <h3 class="text-lg font-semibold text-slate-700 mb-4">Profitability Calculation</h3>
+                            <div class="space-y-3 text-sm">
+                                ${ProfitRow('Sale Amount', order.sale.amount)}
+                                ${ProfitRow('Gateway Fee', order.payment.fee, true)}
+                                ${order.shipment ? ProfitRow('Shipping Fee', order.shipment.fee, true) : ''}
+                                ${ProfitRow('Cost of Goods', order.cogs, true)}
+                                <div class="border-t border-slate-200 my-2"></div>
+                                ${ProfitRow('Net Profit', order.netProfit, false, true, true)}
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+        };
+        
+        const renderReports = () => {
+            const page = document.getElementById('reports-page');
+            page.innerHTML = `
+                <div class="p-8">
+                    <h2 class="text-3xl font-bold text-slate-800 mb-6">Reports</h2>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                        <div class="bg-white p-6 rounded-xl shadow-md"><h3 class="text-lg font-semibold text-slate-700 mb-4">Profitability Trend (Last 30 Days)</h3><div class="relative h-[300px]"><canvas id="trendChart"></canvas></div></div>
+                        <div class="bg-white p-6 rounded-xl shadow-md"><h3 class="text-lg font-semibold text-slate-700 mb-4">Profitability by Payment Method</h3><div class="relative h-[300px]"><canvas id="paymentMethodChart"></canvas></div></div>
+                    </div>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="bg-white p-6 rounded-xl shadow-md"><h3 class="text-lg font-semibold text-slate-700 mb-4">Top 5 Most Profitable Products</h3><div id="top-products-table"></div></div>
+                        <div class="bg-white p-6 rounded-xl shadow-md"><h3 class="text-lg font-semibold text-slate-700 mb-4">Top 5 Least Profitable Products</h3><div id="bottom-products-table"></div></div>
+                    </div>
+                </div>`;
+            
+            // Trend Chart
+            const trendCtx = document.getElementById('trendChart')?.getContext('2d');
+            if (trendCtx) {
+                const trendData = Object.values(state.dummyData.reduce((acc, order) => {
+                    if(order.status === 'RECONCILED') {
+                        acc[order.date] = acc[order.date] || { date: order.date, profit: 0 };
+                        acc[order.date].profit += order.netProfit;
+                    }
+                    return acc;
+                }, {})).sort((a, b) => new Date(a.date) - new Date(b.date));
+                state.charts.trendChart = new Chart(trendCtx, {
+                    type: 'line',
+                    data: {
+                        labels: trendData.map(d => d.date.substring(5)), // Show MM-DD
+                        datasets: [{ label: 'Daily Profit', data: trendData.map(d => d.profit), borderColor: '#4F46E5', tension: 0.1 }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false }
+                });
+            }
+
+            // Payment Method Chart
+            const paymentMethodCtx = document.getElementById('paymentMethodChart')?.getContext('2d');
+            if (paymentMethodCtx) {
+                const paymentMethodData = Object.values(state.dummyData.reduce((acc, order) => {
+                    if(order.status === 'RECONCILED') {
+                        acc[order.paymentMethod] = acc[order.paymentMethod] || { name: order.paymentMethod, profit: 0, count: 0 };
+                        acc[order.paymentMethod].profit += order.netProfit;
+                        acc[order.paymentMethod].count++;
+                    }
+                    return acc;
+                }, {})).map(d => ({ ...d, 'avgProfit': d.profit / d.count }));
+                state.charts.paymentMethodChart = new Chart(paymentMethodCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: paymentMethodData.map(d => d.name),
+                        datasets: [{ label: 'Average Profit', data: paymentMethodData.map(d => d.avgProfit), backgroundColor: ['#22C55E', '#F97316'] }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false }
+                });
+            }
+
+            // Product Tables
+            const productProfit = Object.values(state.dummyData.reduce((acc, order) => {
+                if (order.status === 'RECONCILED') {
+                    acc[order.productName] = acc[order.productName] || { name: order.productName, profit: 0, count: 0 };
+                    acc[order.productName].profit += order.netProfit;
+                    acc[order.productName].count++;
+                }
+                return acc;
+            }, {})).map(p => ({ ...p, avgProfit: p.profit / p.count })).sort((a, b) => b.avgProfit - a.avgProfit);
+
+            const createProductTable = (data) => `
+                <table class="w-full text-sm text-left text-slate-500">
+                    <thead class="text-xs text-slate-700 uppercase bg-slate-50"><tr><th class="px-4 py-2">Product</th><th class="px-4 py-2">Avg. Profit</th></tr></thead>
+                    <tbody>${data.map(p => `<tr class="border-b"><td class="px-4 py-2 font-medium text-slate-800">${p.name}</td><td class="px-4 py-2 font-semibold ${p.avgProfit > 0 ? 'text-green-600' : 'text-red-600'}">${formatCurrency(p.avgProfit, 2)}</td></tr>`).join('')}</tbody>
+                </table>`;
+            
+            document.getElementById('top-products-table').innerHTML = createProductTable(productProfit.slice(0, 5));
+            document.getElementById('bottom-products-table').innerHTML = createProductTable(productProfit.slice(-5).reverse());
+        };
+
+        const renderSettings = () => {
+            const page = document.getElementById('settings-page');
+            page.innerHTML = `
+                <div class="p-8">
+                    <h2 class="text-3xl font-bold text-slate-800 mb-6">Settings</h2>
+                    <div class="max-w-2xl space-y-8">
+                        <div class="bg-white p-6 rounded-xl shadow-md">
+                            <h3 class="text-lg font-semibold text-slate-700 border-b border-slate-200 pb-3 mb-4">User Profile</h3>
+                            <div class="space-y-4">
+                                <div><label class="block text-sm font-medium text-slate-600 mb-1">Name</label><input type="text" value="Priya Sharma" class="w-full border border-slate-300 rounded-lg px-3 py-2"></div>
+                                <div><label class="block text-sm font-medium text-slate-600 mb-1">Email</label><input type="email" value="priya.sharma@example.com" class="w-full border border-slate-300 rounded-lg px-3 py-2 bg-slate-50" disabled></div>
+                            </div>
+                        </div>
+                        <div class="bg-white p-6 rounded-xl shadow-md">
+                            <h3 class="text-lg font-semibold text-slate-700 border-b border-slate-200 pb-3 mb-4">Notification Preferences</h3>
+                            <div class="space-y-3">
+                                <label class="flex items-center"><input type="checkbox" class="h-4 w-4 rounded text-indigo-600" checked><span class="ml-3 text-sm text-slate-700">Email me a summary report weekly</span></label>
+                                <label class="flex items-center"><input type="checkbox" class="h-4 w-4 rounded text-indigo-600" checked><span class="ml-3 text-sm text-slate-700">Alert me for discrepancies over ₹1,000</span></label>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <button class="bg-indigo-600 text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:bg-indigo-700 transition-colors">Save Changes</button>
+                        </div>
+                    </div>
+                </div>`;
+        };
+
+        // --- MAIN RENDER & NAVIGATION ---
+        const mainRender = () => {
+            destroyCharts();
+            document.querySelectorAll('.page-content').forEach(p => p.classList.add('hidden'));
+            renderSidebar();
+
+            const pageId = state.activePage.toLowerCase().replace(' ', '-');
+            const currentPage = document.getElementById(`${pageId}-page`);
+            if (currentPage) {
+                currentPage.classList.remove('hidden');
+                switch (state.activePage) {
+                    case 'Dashboard': renderDashboard(); break;
+                    case 'Data Upload': renderDataUpload(); break;
+                    case 'Exceptions': renderExceptions(); break;
+                    case 'Order Detail': renderOrderDetail(); break;
+                    case 'Reports': renderReports(); break;
+                    case 'Settings': renderSettings(); break;
+                }
+            }
+            lucide.createIcons();
+            addEventListeners();
+        };
+
+        window.navigateTo = (page, orderId = null) => {
+            state.activePage = page;
+            if (orderId) state.selectedOrderId = orderId;
+            mainRender();
+        };
+
+        // --- EVENT LISTENERS ---
+        const addEventListeners = () => {
+            // Sidebar navigation - ALWAYS re-attach
+            document.querySelectorAll('.sidebar-btn').forEach(btn => {
+                btn.onclick = () => navigateTo(btn.dataset.page);
+            });
+
+            // Page-specific listeners
+            if (state.activePage === 'Data Upload') {
+                document.querySelectorAll('.browse-file-btn').forEach(btn => { btn.onclick = (e) => { state.uploadedFiles[e.currentTarget.dataset.source] = { name: `${e.currentTarget.dataset.source}_report.csv` }; mainRender(); }; });
+                document.querySelectorAll('.remove-file-btn').forEach(btn => { btn.onclick = (e) => { state.uploadedFiles[e.currentTarget.dataset.source] = null; mainRender(); }; });
+                const nextBtn = document.getElementById('upload-next-btn'); if (nextBtn) nextBtn.onclick = () => { state.uploadStep = 2; mainRender(); };
+                const backBtn = document.getElementById('mapping-back-btn'); if (backBtn) backBtn.onclick = () => { state.uploadStep = 1; mainRender(); };
+                const initiateBtn = document.getElementById('initiate-recon-btn'); if (initiateBtn) initiateBtn.onclick = () => { state.uploadStep = 3; mainRender(); };
+                const uploadMoreBtn = document.getElementById('upload-more-btn'); if (uploadMoreBtn) uploadMoreBtn.onclick = () => { state.uploadStep = 1; state.uploadedFiles = { shopify: null, razorpay: null, shiprocket: null }; mainRender(); };
+            }
+            if (state.activePage === 'Exceptions') {
+                document.getElementById('exceptions-search').oninput = (e) => { state.exceptionsSearchTerm = e.target.value; mainRender(); };
+                document.getElementById('exceptions-filter').onchange = (e) => { state.exceptionsFilter = e.target.value; mainRender(); };
+                document.querySelectorAll('.sort-header').forEach(header => {
+                    header.onclick = (e) => {
+                        const key = e.currentTarget.dataset.key;
+                        let direction = 'ascending';
+                        if (state.exceptionsSortConfig.key === key && state.exceptionsSortConfig.direction === 'ascending') { direction = 'descending'; }
+                        state.exceptionsSortConfig = { key, direction };
+                        mainRender();
+                    };
+                });
+            }
+            if (state.activePage === 'Order Detail') {
+                const backBtn = document.getElementById('back-to-exceptions'); if(backBtn) backBtn.onclick = () => navigateTo('Exceptions');
+            }
+        };
+
+        // --- INITIAL RENDER ---
+        mainRender();
+    });
+    </script>
+</body>
+</html>
